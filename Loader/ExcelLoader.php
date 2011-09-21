@@ -1,43 +1,40 @@
 <?php
 
-namespace Zenstruck\Bundle\ExcelBundle\Command;
+namespace Zenstruck\Bundle\ExcelBundle\Loader;
 
-use Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand;
-use Symfony\Component\Console\Input\InputArgument;
-use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Output\OutputInterface;
+use Doctrine\ORM\EntityManager;
+use Doctrine\ORM\EntityRepository;
+use Symfony\Component\DependencyInjection\Container;
 
 /**
  * @author Kevin Bond <kevinbond@gmail.com>
  */
-class ExcelImportCommand extends ContainerAwareCommand
+class ExcelLoader
 {
+    protected $container;
     protected $em;
     protected $repository;
     protected $class;
     protected $idField;
 
-    protected function configure()
+    public function __construct(Container $container)
     {
-        $this
-                ->setName('zenstruck:excel:import')
-                ->setDescription('Import an excel table')
-                ->addArgument('entity', InputArgument::REQUIRED, 'The entity shortname - ie ApplicationBundle:Tag')
-                ->addArgument('file', InputArgument::REQUIRED, 'The excel file to import')
-                ->addOption('id', null, null, 'Field to use as identifier for updating data')
-                ->addOption('truncate', null, null, 'Whether to truncate the table before import')
-        ;
+        $this->container = $container;
+
+        $this->em = $container->get('doctrine.orm.entity_manager');
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    public function load($filename, $shortClassName, $idField = null, $truncate = false)
     {
-        $shortClassName = $input->getArgument('entity');
+
+        if (!file_exists($filename)) {
+            throw new \InvalidArgumentException('File does not exist');
+        }
 
         try {
             list($bundleName, $entity) = explode(':', $shortClassName);
 
-            $namespace = $this->getContainer()->get('kernel')->getBundle($bundleName)->getNamespace();
+            $namespace = $this->container->get('kernel')->getBundle($bundleName)->getNamespace();
             $this->class = $namespace.'\\Entity\\'.$entity;
 
         } catch (\Exception $e) {
@@ -48,35 +45,24 @@ class ExcelImportCommand extends ContainerAwareCommand
             throw new \InvalidArgumentException('Entity does not exist.');
         }
 
-        $this->idField = $input->getOption('id');
+        $this->idField = $idField;
 
-        // hook for custom code
-        $file = $this->getFile($input);
-
-        if (!file_exists($file)) {
-            throw new \InvalidArgumentException('File not found.');
-        }
-
-        /* @var $em \Doctrine\ORM\EntityManager */
-        $this->em = $this->getContainer()->get('doctrine.orm.entity_manager');
         $this->repository = $this->em->getRepository($shortClassName);
 
-        if ($input->getOption('truncate')) {
-            $output->writeln('Truncating table');
+        $excel = new \PHPExcel_Plus;
+        $rows = $excel->load($filename)->convertToSimpleArray();
+
+        if ($truncate) {
             $this->truncateTable();
         }
 
-        $excel = new \PHPExcel_Plus;
-        $rows = $excel->load($file)->convertToSimpleArray();
-
-        $this->parseRows($rows, $output);
+        $this->parseRows($rows);
     }
 
-    protected function parseRows($rows, OutputInterface $output)
+    protected function parseRows($rows)
     {
         // loop thru table rows
         foreach ($rows as $row) {
-            $action = 'Added';
 
             $entity = new $this->class;
 
@@ -86,8 +72,6 @@ class ExcelImportCommand extends ContainerAwareCommand
 
                 if ($result) {
                     $entity = $result;
-
-                    $action = 'Updated';
                 }
             }
 
@@ -118,12 +102,8 @@ class ExcelImportCommand extends ContainerAwareCommand
             // hook for custom code
             $entity = $this->customEntityLogic($entity, $row);
 
-
-
             $this->em->persist($entity);
             $this->em->flush();
-
-            $output->write('.');
         }
     }
 
@@ -173,26 +153,11 @@ class ExcelImportCommand extends ContainerAwareCommand
         $this->em->flush();
     }
 
-    protected function performAdditionalLogic($entity, $row)
-    {
-        return $entity;
-    }
-
     /**
      * Override to add custom logic
      */
     public function customEntityLogic($entity, $row)
     {
         return $entity;
-    }
-
-    /**
-     * Override to add custom getFile logic
-     *
-     * @param InputInterface $input
-     */
-    protected function getFile(InputInterface $input)
-    {
-        return $input->getArgument('file');
     }
 }
