@@ -151,6 +151,7 @@ class ExcelLoader
         }
 
         $this->em->flush();
+        $this->em->clear();
     }
 
     /**
