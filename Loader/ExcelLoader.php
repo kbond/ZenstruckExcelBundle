@@ -100,10 +100,13 @@ class ExcelLoader
             }
 
             // hook for custom code
-            $entity = $this->customEntityLogic($entity, $row);
+            $entity = $this->preSave($entity, $row);
 
             $this->em->persist($entity);
             $this->em->flush();
+
+            // hook for custom code
+            $this->postSave($entity, $row);
         }
     }
 
@@ -155,10 +158,18 @@ class ExcelLoader
     }
 
     /**
-     * Override to add custom logic
+     * PreSave Hook
      */
-    public function customEntityLogic($entity, $row)
+    protected function preSave($entity, $row)
     {
         return $entity;
+    }
+
+    /**
+     * PostSave Hook
+     */
+    protected function postSave($entity, $row)
+    {
+
     }
 }
